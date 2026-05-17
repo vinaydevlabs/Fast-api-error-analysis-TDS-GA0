@@ -8,8 +8,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from google import genai
-from google.genai import types
+from openai import OpenAI
+import json
 
 
 # =========================================================
@@ -83,18 +83,18 @@ def execute_python_code(code: str) -> dict:
 # =========================================================
 
 def analyze_error_with_ai(code: str, traceback_text: str) -> List[int]:
-    """
-    Use Gemini AI to identify exact error line numbers.
-    """
 
-    client = genai.Client(
-        api_key=os.environ.get("AIPIPE_API_KEY")
+    client = OpenAI(
+        api_key=os.environ.get("AIPIPE_API_KEY"),
+
+        # Replace with your AI Pipe endpoint
+        base_url="https://aipipe.org/openai/v1"
     )
 
     prompt = f"""
-Analyze this Python code and its traceback.
+Analyze this Python code and traceback.
 
-Identify the exact line number(s) in the ORIGINAL CODE
+Identify the exact line number(s)
 where the error occurred.
 
 CODE:
@@ -103,39 +103,28 @@ CODE:
 TRACEBACK:
 {traceback_text}
 
-Return only the line number(s).
+Return JSON ONLY in this format:
+{{"error_lines":[3]}}
 """
 
-    response = client.models.generate_content(
-        model="gemini-2.0-flash-exp",
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
 
-        contents=prompt,
+        messages=[
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
 
-        config=types.GenerateContentConfig(
-            response_mime_type="application/json",
-
-            response_schema=types.Schema(
-                type=types.Type.OBJECT,
-
-                properties={
-                    "error_lines": types.Schema(
-                        type=types.Type.ARRAY,
-
-                        items=types.Schema(
-                            type=types.Type.INTEGER
-                        )
-                    )
-                },
-
-                required=["error_lines"]
-            )
-        )
+        temperature=0
     )
 
-    result = ErrorAnalysis.model_validate_json(response.text)
+    content = response.choices[0].message.content
 
-    return result.error_lines
+    parsed = json.loads(content)
 
+    return parsed["error_lines"]
 
 # =========================================================
 # API ENDPOINT
